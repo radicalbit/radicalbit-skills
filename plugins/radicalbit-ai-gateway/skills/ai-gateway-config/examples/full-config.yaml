@@ -1,0 +1,269 @@
+# Radicalbit AI Gateway - Full Configuration Example
+#
+# Demonstrates a realistic multi-route setup with:
+# - Multiple providers (OpenAI + self-hosted Ollama)
+# - Guardrails (PII anonymization, toxicity judge, string matching)
+# - Semantic and exact caching
+# - Rate and token limiting
+# - Fallback chains (defined at route level)
+# - Advanced routing (keyword + budget rules)
+# - Budget limiting
+
+# ─────────────────────────────────────────────
+# CHAT MODELS
+# ─────────────────────────────────────────────
+chat_models:
+  - model_id: gpt-4o
+    model: openai/gpt-4o
+    credentials:
+      api_key: !secret OPENAI_API_KEY
+    prompt: "You are a helpful assistant for Acme Corp customers."
+    role: system
+    params:
+      temperature: 0.7
+      max_tokens: 1000
+    retry_attempts: 2
+    input_cost_per_million_tokens: 2.50
+    output_cost_per_million_tokens: 10.00
+
+  - model_id: gpt-4o-mini
+    model: openai/gpt-4o-mini
+    credentials:
+      api_key: !secret OPENAI_API_KEY
+    role: system
+    params:
+      temperature: 0.5
+      max_tokens: 500
+    input_cost_per_million_tokens: 0.15
+    output_cost_per_million_tokens: 0.60
+
+  # Self-hosted Ollama model — note base_url and dummy api_key
+  - model_id: llama3-local
+    model: openai/llama3.2
+    credentials:
+      api_key: 'fake'
+      base_url: 'http://host.docker.internal:11434/v1'
+    role: system
+    params:
+      temperature: 0.7
+
+
+# ─────────────────────────────────────────────
+# EMBEDDING MODELS
+# ─────────────────────────────────────────────
+embedding_models:
+  - model_id: text-embedding-3-small
+    model: openai/text-embedding-3-small
+    credentials:
+      api_key: !secret OPENAI_API_KEY
+
+  - model_id: text-embedding-ada-002
+    model: openai/text-embedding-ada-002
+    credentials:
+      api_key: !secret OPENAI_API_KEY
+
+
+# ─────────────────────────────────────────────
+# GUARDRAILS
+# ─────────────────────────────────────────────
+guardrails:
+  # Block requests mentioning competitors (values is a list)
+  - name: competitor-block
+    type: contains
+    description: Block mentions of competitor products
+    where: input
+    behavior: soft_block
+    response_message: "I can only assist with Acme Corp products and services."
+    parameters:
+      values:
+        - "competitor_a"
+        - "competitor_b"
+
+  # Block inputs that start with known injection patterns
+  - name: injection-prefix-block
+    type: starts_with
+    where: input
+    behavior: block
+    parameters:
+      values:
+        - "Ignore previous instructions"
+        - "Disregard all"
+
+  # Anonymize PII in both request and response
+  - name: pii-anonymizer
+    type: presidio_anonymizer
+    description: Mask emails and phone numbers in all traffic
+    where: io
+    parameters:
+      language: en
+      entities:
+        - EMAIL_ADDRESS
+        - PHONE_NUMBER
+        - CREDIT_CARD
+
+  # Block Italian identity card numbers in input
+  - name: pii-identity-block
+    type: presidio_analyzer
+    description: Block requests containing Italian identity card numbers
+    where: input
+    behavior: block
+    parameters:
+      language: it
+      entities:
+        - IT_IDENTITY_CARD
+        - IBAN_CODE
+
+  # LLM judge for toxicity
+  - name: toxicity-judge
+    type: judge
+    description: Detect and block toxic or offensive content
+    where: input
+    behavior: soft_block
+    response_message: "Your request could not be processed due to inappropriate content."
+    parameters:
+      prompt_ref: "toxicity_check.md"
+      model_id: "gpt-4o-mini"
+      temperature: 0.0
+      max_tokens: 100
+      fallback_model_id: "gpt-4o-mini"
+
+  # LLM judge for prompt injection
+  - name: injection-judge
+    type: judge
+    description: Detect prompt injection and jailbreak attempts
+    where: input
+    behavior: block
+    parameters:
+      prompt_ref: "prompt_injection_check.md"
+      model_id: "gpt-4o-mini"
+      temperature: 0.0
+      max_tokens: 100
+
+
+# ─────────────────────────────────────────────
+# ADVANCED ROUTING
+# ─────────────────────────────────────────────
+routing:
+  # Keyword-based routing: send billing/tech questions to specialized models
+  - name: intent-routing
+    type: deterministic
+    rule: keyword
+    default_model_id: gpt-4o-mini
+    output_mapping:
+      - model_id: gpt-4o
+        conditions:
+          - billing
+          - invoice
+          - payment
+          - urgent
+
+  # Budget-based routing: downgrade model as budget is consumed
+  - name: budget-routing
+    type: deterministic
+    rule: budget
+    default_model_id: gpt-4o         # used when < 60% budget consumed
+    output_mapping:
+      - model_id: gpt-4o-mini
+        conditions:
+          threshold: 0.6             # >= 60% consumed
+      - model_id: llama3-local
+        conditions:
+          threshold: 0.85            # >= 85% consumed
+
+
+# ─────────────────────────────────────────────
+# CACHE BACKEND
+# ─────────────────────────────────────────────
+cache:
+  redis_host: "valkey"
+  redis_port: 6379
+
+
+# ─────────────────────────────────────────────
+# ROUTES
+# ─────────────────────────────────────────────
+routes:
+
+  # Public-facing customer support chatbot
+  # - Semantic caching to avoid re-processing similar questions
+  # - Fallback defined at route level
+  # - PII anonymization + toxicity + injection guardrails
+  # - Rate limited to 60 req/min
+  customer-support:
+    chat_models:
+      - gpt-4o
+      - gpt-4o-mini       # listed here so it can be used in fallback
+      - llama3-local      # listed here so it can be used in fallback
+    embedding_models:
+      - text-embedding-3-small
+    guardrails:
+      - pii-anonymizer
+      - toxicity-judge
+      - injection-judge
+      - competitor-block
+    fallback:
+      - target: gpt-4o
+        fallbacks:
+          - gpt-4o-mini
+          - llama3-local
+      - target: text-embedding-3-small
+        type: embedding
+        fallbacks:
+          - text-embedding-ada-002
+    caching:
+      enabled: true
+      ttl: 300
+      type: semantic
+      embedding_model_id: text-embedding-3-small
+      similarity_threshold: 0.85
+      distance_metric: cosine
+      dim: 1536
+    rate_limiting:
+      algorithm: fixed_window
+      window_size: 1 minute
+      max_requests: 60
+    token_limiting:
+      input:
+        window_size: 1 minute
+        max_token: 50000
+      output:
+        window_size: 1 minute
+        max_token: 20000
+
+  # Internal Q&A for employees
+  # - Keyword routing: sends urgent/billing queries to GPT-4o
+  # - Exact cache
+  internal-qa:
+    chat_models:
+      - gpt-4o-mini
+      - gpt-4o
+    routing: intent-routing
+    guardrails:
+      - pii-anonymizer
+    caching:
+      type: exact
+      enabled: true
+      ttl: 600
+    rate_limiting:
+      algorithm: fixed_window
+      window_size: 1 minute
+      max_requests: 200
+
+  # Cost-controlled route: degrades to cheaper models as budget is consumed
+  cost-controlled:
+    chat_models:
+      - gpt-4o
+      - gpt-4o-mini
+      - llama3-local
+    routing: budget-routing
+    guardrails:
+      - injection-prefix-block
+    budget_limiting:
+      input:
+        algorithm: fixed_window
+        window_size: 1 hour
+        max_budget: 10.0
+    rate_limiting:
+      algorithm: aligned_fixed_window
+      window_size: 1 minute
+      max_requests: 100

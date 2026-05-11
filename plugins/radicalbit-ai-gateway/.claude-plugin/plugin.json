@@ -1,0 +1,13 @@
+{
+  "name": "radicalbit-ai-gateway",
+  "description": "Skills for working with the Radicalbit AI Gateway",
+  "version": "0.1.0",
+  "author": {
+    "name": "Radicalbit",
+    "url": "https://radicalbit.ai"
+  },
+  "homepage": "https://radicalbit.ai",
+  "repository": "https://github.com/radicalbit/radicalbit-skills",
+  "license": "MIT",
+  "keywords": ["ai-gateway", "config", "yaml", "guardrails", "routing"]
+}

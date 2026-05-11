@@ -1,0 +1,14 @@
+{
+  "name": "radicalbit",
+  "owner": {
+    "name": "Radicalbit",
+    "url": "https://radicalbit.ai"
+  },
+  "plugins": [
+    {
+      "name": "radicalbit-ai-gateway",
+      "source": "./plugins/radicalbit-ai-gateway",
+      "description": "Skills for working with the Radicalbit AI Gateway"
+    }
+  ]
+}

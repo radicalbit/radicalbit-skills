@@ -1,0 +1,96 @@
+chat_models:
+  - model_id: qwen
+    model: openai/qwen2.5:3b
+    credentials:
+      api_key: 'fake'
+      base_url: 'http://host.docker.internal:11434/v1'
+    # Use either `prompt` OR `prompt_ref` (mutually exclusive)
+    prompt_ref: 'customer_service.md'
+  - model_id: llama3.2
+    model: openai/llama3.2
+    credentials:
+      api_key: 'fake'
+      base_url: 'http://host.docker.internal:11434/v1'
+  - model_id: llama3
+    model: openai/llama3.2:3b
+    credentials:
+      api_key: 'fake'
+      base_url: 'http://host.docker.internal:11434/v1'
+    prompt: 'Try to always use Wikipedia tool if some knowledge question is involved'
+embedding_models:
+  - model_id: text-embedding-3-small
+    model: openai/text-embedding-3-small
+    credentials:
+      api_key: 'fake'
+  - model_id: text-embedding-ada-002
+    model: openai/text-embedding-ada-002
+    credentials:
+      api_key: 'fake'
+
+routes:
+  customer-service:
+    chat_models:
+      - qwen
+      - llama3.2
+    embedding_models:
+      - text-embedding-3-small
+      - text-embedding-ada-002
+    guardrails:
+      - presidio_analyzer
+      - presidio_anonymizer
+    fallback:
+      - target: qwen
+        fallbacks:
+          - llama3.2
+      - target: llama3.2
+        fallbacks:
+          - qwen
+      - target: text-embedding-3-small
+        fallbacks:
+          - text-embedding-ada-002
+        type: embedding
+    rate_limiting:
+      algorithm: fixed_window
+      window_size: 30 seconds
+      max_requests: 20
+
+  business-development:
+    chat_models:
+      - qwen
+    rate_limiting:
+      window_size: 20 seconds
+      max_requests: 2
+    token_limiting:
+      input:
+        window_size: 10 seconds
+        max_token: 5
+
+  finance:
+    chat_models:
+      - llama3
+    caching:
+      ttl: 300
+
+guardrails:
+  - name: presidio_anonymizer
+    type: presidio_anonymizer
+    description: Anonymize IBAN and emails codes
+    where: io
+    parameters:
+      language: it
+      entities:
+        - EMAIL_ADDRESS
+        - IBAN_CODE
+  - name: presidio_analyzer
+    type: presidio_analyzer
+    description: Block italian Identity card
+    where: input
+    behavior: block
+    parameters:
+      language: it
+      entities:
+        - IT_IDENTITY_CARD
+
+cache:
+  redis_host: 'valkey'
+  redis_port: 6379
