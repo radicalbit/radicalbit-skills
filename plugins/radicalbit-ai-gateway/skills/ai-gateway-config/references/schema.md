@@ -19,7 +19,7 @@
 |-------|------|----------|-------------|
 | `model_id` | string | Yes | Unique identifier used to reference this model in routes, fallbacks, and routing |
 | `model` | string | Yes | Provider/model path — see provider formats below |
-| `credentials.api_key` | string | Yes* | API key using `!secret ENV_VAR_NAME` syntax. *Not required for `mock` provider |
+| `credentials.api_key` | string | Yes* | API key using `!secret ENV_VAR_NAME` syntax. *Not required for `mock` provider or self-hosted models (`base_url` set) — omit entirely for those |
 | `credentials.base_url` | string | No | Base URL for self-hosted/compatible models (Ollama, vLLM, OpenRouter). Must end with `/v1` |
 | `credentials.api_version` | string | No | Azure deployments only |
 | `credentials.azure_ad_token` | string | No | Azure AD token, using `!secret ENV_VAR_NAME` syntax |
@@ -58,7 +58,7 @@
 |-------|------|----------|-------------|
 | `model_id` | string | Yes | Unique identifier |
 | `model` | string | Yes | Provider/model path — e.g. `openai/text-embedding-3-small`, `google-genai/models/gemini-embedding-001` |
-| `credentials.api_key` | string | Yes* | API key. *Not required for `mock` provider. Required for Gemini (no env fallback) |
+| `credentials.api_key` | string | Yes* | API key. *Not required for `mock` provider or self-hosted models (`base_url` set). Required for Gemini (no env fallback) |
 | `credentials.base_url` | string | No | Base URL for self-hosted models |
 | `params.task_type` | string | No | Gemini only: `RETRIEVAL_QUERY`, `RETRIEVAL_DOCUMENT`, `SEMANTIC_SIMILARITY`, `CLASSIFICATION`, `CLUSTERING` |
 
@@ -191,16 +191,32 @@ output_mapping:
 
 #### Rule: `token_length`
 
-Selects the mapping with the highest `threshold` still below the input token count.
+Routes based on token count of the **last user message**. Each entry's `conditions` must have exactly one of `gte`, `lte`, or `between`.
 
 ```yaml
 output_mapping:
-  - model_id: mid-model
+  - model_id: cheap-model
     conditions:
-      threshold: 2000       # >= 2000 tokens
+      lte: 999              # last message <= 999 tokens
   - model_id: long-context
     conditions:
-      threshold: 8000       # >= 8000 tokens
+      gte: 1000             # last message >= 1000 tokens
+```
+
+Use `between: [min, max]` for a bounded range (inclusive). Ranges must not overlap.
+
+#### Rule: `context_length`
+
+Same condition format as `token_length`, but routes based on the **total token count of the entire conversation** (all messages combined).
+
+```yaml
+output_mapping:
+  - model_id: standard-model
+    conditions:
+      lte: 7999
+  - model_id: long-context-model
+    conditions:
+      gte: 8000
 ```
 
 #### Rule: `time`
@@ -239,6 +255,40 @@ Delegates to an external ML classifier via HTTP.
 | `output_mapping` | list | Yes | Maps class labels to model IDs |
 
 The gateway POSTs `{"dataframe_records": [{"inputs": "<last user message>"}]}` and expects `{"predictions": [{"class": "CLASS_A", "score": 0.95}]}`.
+
+### Type: `semantic`
+
+Routes by intent using embedding similarity. At startup, example utterances are embedded and averaged into one centroid vector per model. Each request embeds the last user message and routes to the model with the highest cosine similarity above the threshold — no external HTTP call per request.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `embedding_model_id` | string | Yes | References a top-level `embedding_models` entry |
+| `similarity_threshold` | float | No | Minimum cosine similarity to match (default: `0.35`, range: 0.0–1.0) |
+| `output_mapping` | list | Yes | Each entry: `model_id` + `conditions` (list of example utterances) |
+
+`conditions` is a list of example utterances (5–10 per model recommended). Entry order does not affect selection — highest-scoring centroid wins.
+
+```yaml
+routing:
+  - name: intent-routing
+    type: semantic
+    default_model_id: gpt-4o-mini
+    embedding_model_id: text-embedding-3-small
+    similarity_threshold: 0.35
+    output_mapping:
+      - model_id: code-model
+        conditions:
+          - "write a python function"
+          - "debug this code"
+          - "explain this algorithm"
+      - model_id: general-model
+        conditions:
+          - "what is the weather"
+          - "tell me a joke"
+          - "summarize this article"
+```
+
+The embedding model must also be listed in the route's `embedding_models`.
 
 ---
 

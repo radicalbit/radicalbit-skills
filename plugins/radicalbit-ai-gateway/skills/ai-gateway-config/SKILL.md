@@ -5,7 +5,8 @@ description: >
   the Radicalbit AI Gateway configuration file (config.yaml). Triggers on phrases
   like "generate gateway config", "create config.yaml", "configure the gateway",
   "add a guardrail", "set up caching", "add rate limiting", "configure fallback",
-  "add a model", "add a route", or any request about the AI Gateway YAML setup.
+  "add a model", "add a route", "set up semantic routing", "route by intent",
+  "add intent-based routing", or any request about the AI Gateway YAML setup.
 disable-model-invocation: true
 ---
 
@@ -38,7 +39,8 @@ Generate or update the `config.yaml` for the Radicalbit AI Gateway based on: $AR
 
 ## Rules
 
-- API keys must always use the `!secret ENV_VAR_NAME` syntax — never hardcode secrets.
+- Cloud model API keys must always use the `!secret ENV_VAR_NAME` syntax — never hardcode secrets.
+- For self-hosted models (Ollama, vLLM, or any model with `base_url`), omit `api_key` entirely — do not use `'fake'` or any placeholder value.
 - `prompt` and `prompt_ref` are mutually exclusive on a model — use one or the other.
 - Guardrails are defined globally and referenced by name inside routes.
 - String matching guardrails use `values: [...]` (a list), not a single `pattern` string.

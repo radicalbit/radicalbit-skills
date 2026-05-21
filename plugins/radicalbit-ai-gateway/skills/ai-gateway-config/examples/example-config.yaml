@@ -2,30 +2,27 @@ chat_models:
   - model_id: qwen
     model: openai/qwen2.5:3b
     credentials:
-      api_key: 'fake'
       base_url: 'http://host.docker.internal:11434/v1'
     # Use either `prompt` OR `prompt_ref` (mutually exclusive)
     prompt_ref: 'customer_service.md'
   - model_id: llama3.2
     model: openai/llama3.2
     credentials:
-      api_key: 'fake'
       base_url: 'http://host.docker.internal:11434/v1'
   - model_id: llama3
     model: openai/llama3.2:3b
     credentials:
-      api_key: 'fake'
       base_url: 'http://host.docker.internal:11434/v1'
     prompt: 'Try to always use Wikipedia tool if some knowledge question is involved'
 embedding_models:
   - model_id: text-embedding-3-small
     model: openai/text-embedding-3-small
     credentials:
-      api_key: 'fake'
+      api_key: !secret OPENAI_API_KEY
   - model_id: text-embedding-ada-002
     model: openai/text-embedding-ada-002
     credentials:
-      api_key: 'fake'
+      api_key: !secret OPENAI_API_KEY
 
 routes:
   customer-service:
@@ -69,6 +66,7 @@ routes:
     chat_models:
       - llama3
     caching:
+      type: exact
       ttl: 300
 
 guardrails:
