@@ -37,11 +37,10 @@ chat_models:
     input_cost_per_million_tokens: 0.15
     output_cost_per_million_tokens: 0.60
 
-  # Self-hosted Ollama model — note base_url and dummy api_key
+  # Self-hosted Ollama model — no api_key needed, only base_url
   - model_id: llama3-local
     model: openai/llama3.2
     credentials:
-      api_key: 'fake'
       base_url: 'http://host.docker.internal:11434/v1'
     role: system
     params:
@@ -170,6 +169,29 @@ routing:
         conditions:
           threshold: 0.85            # >= 85% consumed
 
+  # Semantic routing: routes by intent using embedding similarity
+  # Example utterances per model are embedded at startup into centroids;
+  # each request is compared via cosine similarity — no external HTTP call needed.
+  - name: intent-semantic-routing
+    type: semantic
+    default_model_id: gpt-4o-mini
+    embedding_model_id: text-embedding-3-small
+    similarity_threshold: 0.35
+    output_mapping:
+      - model_id: gpt-4o
+        conditions:
+          - "write a python function"
+          - "debug this code"
+          - "explain this algorithm"
+          - "fix this bug"
+          - "review my code"
+      - model_id: gpt-4o-mini
+        conditions:
+          - "what is the weather"
+          - "tell me a joke"
+          - "summarize this article"
+          - "translate this text"
+
 
 # ─────────────────────────────────────────────
 # CACHE BACKEND
@@ -248,6 +270,19 @@ routes:
       algorithm: fixed_window
       window_size: 1 minute
       max_requests: 200
+
+  # Intent-aware route: semantic routing selects model by message intent
+  intent-aware:
+    chat_models:
+      - gpt-4o
+      - gpt-4o-mini
+    embedding_models:
+      - text-embedding-3-small
+    routing: intent-semantic-routing
+    rate_limiting:
+      algorithm: fixed_window
+      window_size: 1 minute
+      max_requests: 100
 
   # Cost-controlled route: degrades to cheaper models as budget is consumed
   cost-controlled:
